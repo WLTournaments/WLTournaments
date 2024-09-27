@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>West Lauderdale Middle Tournament Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.18.0/firebase-app-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.18.0/firebase-auth-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.18.0/firebase-database-compat.min.js"></script>
+    <style>
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        .bg-custom-red {
+            background-color: #FF5555;
+        }
+        .text-custom-red {
+            color: #FF5555;
+        }
+        .border-custom-red {
+            border-color: #FF5555;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans">
+    <div id="loading" class="fixed inset-0 flex items-center justify-center bg-white bg-opacity-75 z-50">
+        <div class="animate-pulse text-4xl font-bold text-custom-red">Loading...</div>
+    </div>
+
+    <div id="login-container" class="hidden min-h-screen flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-md w-96">
+            <h1 class="text-2xl font-bold mb-4 text-center text-custom-red">WLMT Dashboard Login</h1>
+            <input id="email-input" type="email" placeholder="Email" class="w-full px-3 py-2 mb-3 border rounded-md">
+            <input id="password-input" type="password" placeholder="Password" class="w-full px-3 py-2 mb-3 border rounded-md">
+            <input id="ingame-user-input" type="text" placeholder="In-game Username" class="w-full px-3 py-2 mb-3 border rounded-md">
+            <button id="login-btn" class="w-full bg-custom-red text-white px-4 py-2 rounded-md hover:bg-red-600 transition duration-300">Login</button>
+            <p class="mt-4 text-center">
+                <a href="#" id="create-account-link" class="text-custom-red hover:underline">Create Account</a>
+            </p>
+        </div>
+    </div>
+
+    <div id="dashboard" class="hidden min-h-screen flex flex-col">
+        <header class="bg-white shadow-md">
+            <nav class="container mx-auto px-6 py-3 flex justify-between items-center">
+                <div class="text-2xl font-bold text-custom-red">WLMT Dashboard</div>
+                <div>
+                    <button id="tournaments-btn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 transition duration-300 mr-2">Tournaments</button>
+                    <button id="profile-btn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300 transition duration-300 mr-2">Profile</button>
+                    <button id="logout-btn" class="bg-custom-red text-white px-4 py-2 rounded-md hover:bg-red-600 transition duration-300">Logout</button>
+                </div>
+            </nav>
+        </header>
+        <main id="main-content" class="flex-grow container mx-auto px-6 py-8">
+            <!-- Content will be dynamically populated here -->
+        </main>
+    </div>
+
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAoLXMDtZk1jT4dRS_0AF5l7ikGSCCAQPk",
+            authDomain: "wltournaments-ea796.firebaseapp.com",
+            databaseURL: "https://wltournaments-ea796-default-rtdb.firebaseio.com",
+            projectId: "wltournaments-ea796",
+            storageBucket: "wltournaments-ea796.appspot.com",
+            messagingSenderId: "536734020986",
+            appId: "1:536734020986:web:103b5e933f3e1a3d9092c3",
+            measurementId: "G-CN063416NQ"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+
+        // Firebase Authentication and Database
+        const auth = firebase.auth();
+        const database = firebase.database();
+
+        // DOM Elements
+        const loadingElement = document.getElementById('loading');
+        const loginContainer = document.getElementById('login-container');
+        const dashboard = document.getElementById('dashboard');
+        const mainContent = document.getElementById('main-content');
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const tournamentsBtn = document.getElementById('tournaments-btn');
+        const profileBtn = document.getElementById('profile-btn');
+        const createAccountLink = document.getElementById('create-account-link');
+
+        // Supported games
+        const supportedGames = [
+            'Fortnite', 'Rocket League', 'Valorant', 'CODM', 'WZM', 'xDefiant', 
+            'Warzone', 'CSGO', 'Brawl Stars', 'Multiverse', 'Combat Master', 
+            'Brawl Halla', 'Apex Legends'
+        ];
+
+        // Login function
+        function login() {
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            const inGameUser = document.getElementById('ingame-user-input').value;
+
+            if (!email || !password || !inGameUser) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            showLoading();
+            auth.signInWithEmailAndPassword(email, password)
+                .then((userCredential) => {
+                    const user = userCredential.user;
+                    updateUserProfile(user, inGameUser);
+                })
+                .catch((error) => {
+                    hideLoading();
+                    alert('Login failed: ' + error.message);
+                });
+        }
+
+        // Update user profile
+        function updateUserProfile(user, inGameUser) {
+            const userRef = database.ref('users/' + user.uid);
+            userRef.update({
+                inGameUser: inGameUser
+            }).then(() => {
+                hideLoading();
+                showDashboard(user.uid);
+            }).catch((error) => {
+                hideLoading();
+                alert('Failed to update profile: ' + error.message);
+            });
+        }
+
+        // Show dashboard
+        function showDashboard(userId) {
+            loginContainer.classList.add('hidden');
+            dashboard.classList.remove('hidden');
+            showTournaments();
+        }
+
+        // Show tournaments
+        function showTournaments() {
+            showLoading();
+            database.ref('tournaments').once('value', (snapshot) => {
+                const tournaments = snapshot.val();
+                let tournamentsHTML = `
+                    <h1 class="text-3xl font-bold mb-6">Upcoming Tournaments</h1>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                `;
+                for (const [id, tournament] of Object.entries(tournaments)) {
+                    tournamentsHTML += `
+                        <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                            <img src="/api/placeholder/400/200" alt="${tournament.name}" class="w-full h-48 object-cover">
+                            <div class="p-4">
+                                <h2 class="text-xl font-semibold mb-2">${tournament.name}</h2>
+                                <p class="text-gray-600 mb-2">Game: ${tournament.game}</p>
+                                <p class="text-gray-600 mb-4">Date: ${tournament.date}</p>
+                                <button onclick="viewTournament('${id}')" class="bg-custom-red text-white px-4 py-2 rounded-md hover:bg-red-600 transition duration-300">View Details</button>
+                            </div>
+                        </div>
+                    `;
+                }
+                tournamentsHTML += `</div>`;
+                mainContent.innerHTML = tournamentsHTML;
+                hideLoading();
+            });
+        }
+
+        // View tournament details
+        function viewTournament(tournamentId) {
+            showLoading();
+            database.ref('tournaments/' + tournamentId).once('value', (snapshot) => {
+                const tournament = snapshot.val();
+                let tournamentHTML = `
+                    <h1 class="text-3xl font-bold mb-6">${tournament.name}</h1>
+                    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                        <p class="text-xl mb-2">Game: ${tournament.game}</p>
+                        <p class="text-xl mb-2">Date: ${tournament.date}</p>
+                        <p class="text-xl mb-4">Status: ${tournament.status}</p>
+                        <button onclick="joinTournament('${tournamentId}')" class="bg-custom-red text-white px-4 py-2 rounded-md hover:bg-red-600 transition duration-300">Join Tournament</button>
+                    </div>
+                    <h2 class="text-2xl font-bold mb-4">Bracket</h2>
+                    <div class="bg-white rounded-lg shadow-md p-6">
+                        <!-- Placeholder for tournament bracket -->
+                        <p class="text-gray-600">Tournament bracket will be displayed here once the tournament starts.</p>
+                    </div>
+                `;
+                mainContent.innerHTML = tournamentHTML;
+                hideLoading();
+            });
+        }
+
+        // Join tournament
+        function joinTournament(tournamentId) {
+            const user = auth.currentUser;
+            if (user) {
+                showLoading();
+                database.ref('tournaments/' + tournamentId + '/participants/' + user.uid).set(true)
+                    .then(() => {
+                        alert('Successfully joined the tournament!');
+                        viewTournament(tournamentId);
+                    })
+                    .catch((error) => {
+                        alert('Failed to join tournament: ' + error.message);
+                        hideLoading();
+                    });
+            } else {
+                alert('Please log in to join a tournament.');
+            }
+        }
+
+        // Show user profile
+        function showProfile() {
+            const user = auth.currentUser;
+            if (user) {
+                showLoading();
+                database.ref('users/' + user.uid).once('value', (snapshot) => {
+                    const userData = snapshot.val();
+                    let profileHTML = `
+                        <h1 class="text-3xl font-bold mb-6">Your Profile</h1>
+                        <div class="bg-white rounded-lg shadow-md p-6">
+                            <p class="text-xl mb-2">Email: ${user.email}</p>
+                            <p class="text-xl mb-2">In-game Username: ${userData.inGameUser}</p>
+                            <p class="text-xl mb-4">Wallet: $${userData.wallet || 0}</p>
+                            <h2 class="text-2xl font-bold mb-2">Your Games</h2>
+                            <ul class="list-disc list-inside mb-4">
+                                ${(userData.games || []).map(game => `<li>${game}</li>`).join('')}
+                            </ul>
+                            <button onclick="addGame()" class="bg-custom-red text-white px-4 py-2 rounded-md hover:bg-red-600 transition duration-300">Add Game</button>
+                        </div>
+                    `;
+                    mainContent.innerHTML = profileHTML;
+                    hideLoading();
+                });
+            } else {
+                alert('Please log in to view your profile.');
+            }
+        }
+
+        // Add game to user profile
+        function addGame() {
+            const user = auth.currentUser;
+            if (user) {
+                showLoading();
+                database.ref('users/' + user.uid + '/games').once('value', (snapshot) => {
+                    const userGames = snapshot.val() || [];
+                    const availableGames = supportedGames.filter(game => !userGames.includes(game));
+                    if (availableGames.length > 0) {
+                        const randomGame = availableGames[Math.floor(Math.random() * availableGames.length)];
+                        userGames.push(randomGame);
+                        database.ref('users/' + user.uid + '/games').set(userGames)
+                            .then(() => {
+                                showProfile();
+                            })
+                            .catch((error) => {
+                                alert('Failed to add game: ' + error.message);
+                                hideLoading();
+                            });
+                    } else {
+                        alert('You have added all available games!');
+                        hideLoading();
+                    }
+                });
+            } else {
+                alert('Please log in to add a game.');
+            }
+        }
+
+        // Show loading animation
+        function showLoading() {
+            loadingElement.classList.remove('hidden');
+        }
+
+        // Hide loading animation
+        function hideLoading() {
+            loadingElement.classList.add('hidden');
+        }
+
+        // Event Listeners
+        loginBtn.addEventListener('click', login);
+        logoutBtn.addEventListener('click', () => {
+            auth.signOut().then(() => {
+                dashboard.classList.add('hidden');
+                loginContainer.classList.remove('hidden');
+            });
+        });
+        tournamentsBtn.addEventListener('click', showTournaments);
+        profileBtn.addEventListener('click', showProfile);
+        createAccountLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            const inGameUser = document.getElementById('ingame-user-input').value;
+
+            if (!email || !password || !inGameUser) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            showLoading();
+            auth.createUserWithEmailAndPassword(email, password)
+                .then((userCredential) => {
+                    const user = userCredential.user;
+                    updateUserProfile(user, inGameUser);
+                })
+                .catch((error) => {
+                    hideLoading();
+                    alert('Account creation failed: ' + error.message);
+                });
+        });
+
+        // Check if user is already logged in
+        auth.onAuthStateChanged((user) => {
+            hideLoading();
+            if (user) {
+                showDashboard(user.uid);
+            } else {loginContainer.classList.remove('hidden');
+                dashboard.classList.add('hidden');
+            }
+        });
+
+        // Initialize dashboard
+        function initializeDashboard() {
+            // Create some sample tournaments if they don't exist
+            database.ref('tournaments').once('value', (snapshot) => {
+                if (!snapshot.exists()) {
+                    const sampleTournaments = {
+                        't1': {
+                            name: 'Fortnite Frenzy',
+                            game: 'Fortnite',
+                            date: '2024-10-15',
+                            status: 'Upcoming',
+                            participants: {}
+                        },
+                        't2': {
+                            name: 'Rocket League Rumble',
+                            game: 'Rocket League',
+                            date: '2024-10-22',
+                            status: 'Upcoming',
+                            participants: {}
+                        },
+                        't3': {
+                            name: 'Valorant Vanguard',
+                            game: 'Valorant',
+                            date: '2024-10-29',
+                            status: 'Upcoming',
+                            participants: {}
+                        }
+                    };
+                    database.ref('tournaments').set(sampleTournaments);
+                }
+            });
+        }
+
+        // Call initialize function when the page loads
+        window.onload = initializeDashboard;
+    </script>
+</body>
+</html>
